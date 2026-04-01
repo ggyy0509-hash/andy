@@ -14,6 +14,7 @@ app = Flask(__name__)
 CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "8770f52a75aabeb6c76ef33416c0e588")
 CHANNEL_ID = os.environ.get("LINE_CHANNEL_ID", "2009580026")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
 
 BASE_URL = "https://nycuemba-ftmzwgi9.manus.space"
 
@@ -152,7 +153,7 @@ def ai_reply(user_id: str, user_message: str) -> str:
     }).encode()
 
     req = urllib.request.Request(
-        "https://api.openai.com/v1/chat/completions",
+        f"{OPENAI_BASE_URL}/chat/completions",
         data=payload,
         headers={
             "Content-Type": "application/json",
