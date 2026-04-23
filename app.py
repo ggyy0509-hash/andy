@@ -13,7 +13,7 @@ app = Flask(__name__)
 # ── 設定（從環境變數讀取）────────────────────────────
 CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "8770f52a75aabeb6c76ef33416c0e588")
 CHANNEL_ID = os.environ.get("LINE_CHANNEL_ID", "2009580026")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
 BASE_URL = "https://nycuemba-ftmzwgi9.manus.space"
 
@@ -110,9 +110,9 @@ def add_to_history(user_id: str, role: str, content: str):
     if len(_conversation_history[user_id]) > MAX_HISTORY * 2:
         _conversation_history[user_id] = _conversation_history[user_id][-MAX_HISTORY * 2:]
 
-# ── AI 回覆（Google Gemini，帶對話記憶）────────────────────────
+# ── AI 回覆（Groq Llama，OpenAI 相容格式，帶對話記憶）──────────────
 def ai_reply(user_id: str, user_message: str) -> str:
-    if not GEMINI_API_KEY:
+    if not GROQ_API_KEY:
         return f"感謝你的訊息！如需查詢相關資訊，可以前往官網看看：{BASE_URL} 😊"
 
     system_prompt = f"""你是「NYCU 115 生醫 EMBA」班級的小助理，名字叫做「小陽」。
@@ -135,38 +135,37 @@ def ai_reply(user_id: str, user_message: str) -> str:
 5. 可以在回覆末尾加一個小問題或鼓勵，讓對話更有溫度
 6. 不要每次都重複介紹自己是誰"""
 
-    # 取得對話歷史，轉換成 Gemini 格式
+    # 取得對話歷史
     history = get_history(user_id)
-    
-    # 建立 Gemini contents 格式
-    contents = []
-    # 加入歷史對話
+
+    # 建立 OpenAI 相容格式的 messages
+    messages = [{"role": "system", "content": system_prompt}]
     for msg in history:
-        role = "user" if msg["role"] == "user" else "model"
-        contents.append({"role": role, "parts": [{"text": msg["content"]}]})
-    # 加入當前訊息（包含 system prompt）
-    current_text = f"{system_prompt}\n\n使用者說：{user_message}" if not contents else user_message
-    contents.append({"role": "user", "parts": [{"text": current_text}]})
+        messages.append({"role": msg["role"], "content": msg["content"]})
+    messages.append({"role": "user", "content": user_message})
 
     payload = json.dumps({
-        "contents": contents,
-        "generationConfig": {
-            "maxOutputTokens": 400,
-            "temperature": 0.85
-        }
+        "model": "llama-3.1-8b-instant",
+        "messages": messages,
+        "max_tokens": 400,
+        "temperature": 0.85,
+        "presence_penalty": 0.3,
+        "frequency_penalty": 0.3
     }).encode()
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
     req = urllib.request.Request(
-        url,
+        "https://api.groq.com/openai/v1/chat/completions",
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {GROQ_API_KEY}"
+        },
         method="POST"
     )
     try:
         with urllib.request.urlopen(req, timeout=20) as res:
             result = json.loads(res.read())
-            reply_text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+            reply_text = result["choices"][0]["message"]["content"].strip()
             # 儲存對話歷史
             add_to_history(user_id, "user", user_message)
             add_to_history(user_id, "assistant", reply_text)
@@ -270,7 +269,7 @@ def health():
     return json.dumps({
         "status": "ok",
         "service": "NYCU 115 生醫 EMBA LINE Bot",
-        "version": "2.1-gemini",
+        "version": "2.2-groq",
         "features": ["keyword_reply", "ai_reply", "conversation_memory", "greeting_detection"],
         "keywords": len(KEYWORD_REPLIES)
     }, ensure_ascii=False), 200, {"Content-Type": "application/json"}
